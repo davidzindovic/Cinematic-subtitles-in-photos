@@ -23,3 +23,5 @@ V python skripti lahko spremenite:
 - velikost fonta
 - odmik okna od spodnjega roba slike
 - zaobljenost vogalov okna
+
+.exe ustvarimo lahko z ukazom ```pyinstaller --onedir subtitles_in_pics.py```
