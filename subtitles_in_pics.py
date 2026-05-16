@@ -1,14 +1,53 @@
 import os
+import sys
 import glob
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import subprocess
+
+# --- SAMODEJNA NAMESTITEV PILLOW (PIL) ---
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+except ImportError:
+    print("Knjižnica 'Pillow' (PIL) ni nameščena. Zaganjam samodejno namestitev...")
+    try:
+        # Zažene 'pip install Pillow' v ozadju
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
+        print("Namestitev uspešna! Nadaljujem z izvajanjem programa...\n")
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    except Exception as e:
+        print(f"Samodejna namestitev ni uspela. Prosimo, ročno zaženite: pip install Pillow")
+        print(f"Napaka: {e}")
+        input("\nPritisni ENTER za izhod...")
+        sys.exit(1)
+
+def dobi_pot_mape():
+    """ Vrne pravilno pot do mape, kjer se nahaja skripta ali .exe datoteka. """
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+def dobi_naslednje_ime(mapa_edited, koncnica):
+    """ Poišče naslednjo prosto številko za poimenovanje (edited_001, edited_002...) """
+    stevec = 1
+    while True:
+        # Oblikuje ime s trimestnim števcem (npr. edited_001.jpg)
+        novo_ime = f"edited_{stevec:03d}{koncnica}"
+        polna_pot = os.path.join(mapa_edited, novo_ime)
+        
+        # Če datoteka s tem imenom še ne obstaja, smo našli pravo ime
+        if not os.path.exists(polna_pot):
+            return polna_pot
+        stevec += 1
 
 def main():
+    trenutna_mapa = dobi_pot_mape()
+
     # --- NASTAVITVE (Spremenljivke za urejanje) ---
     Y_OFFSET = 80          # Odmik SPODNJEGA roba okvirja od spodnjega roba slike
     
     FONT_SIZE = 50         # Velikost pisave
-    FONT_PATH = "AzeretMono-Regular.ttf"          # Navadna pisava
-    FONT_ITALIC_PATH = "AzeretMono-Italic.ttf"  # Italic pisava za tekst v []
+    FONT_PATH = os.path.join(trenutna_mapa, "AzeretMono-Regular.ttf")
+    FONT_ITALIC_PATH = os.path.join(trenutna_mapa, "AzeretMono-Italic.ttf")
     
     BOX_OPACITY = 120      # Prosojnost pravokotnika (0 = nevidno, 255 = polno)
     BOX_RADIUS = 15        # Zaobljenost vseh zunanjih vogalov
@@ -18,17 +57,23 @@ def main():
     # ---------------------------------------------
 
     # 1. Iskanje datoteke z imenom "tole" ne glede na format
-    iskani_vzorec = os.path.join(os.path.dirname(__file__), "tole.*")
+    iskani_vzorec = os.path.join(trenutna_mapa, "tole.*")
     najdene_slike = glob.glob(iskani_vzorec)
 
     if not najdene_slike:
-        print("Napaka: V mapi ni nobene slike z imenom 'tole' (npr. tole.jpg, tole.png ...)")
+        print(f"Napaka: V mapi {trenutna_mapa} ni nobene slike z imenom 'tole' (npr. tole.jpg, tole.png ...)")
+        input("\nPritisni ENTER za izhod...")
         return
 
     pot_do_slike = najdene_slike[0]
     _, koncnica = os.path.splitext(pot_do_slike)
 
-    # 2. Vnos besedila za dve vrstici
+    # 2. Ustvarjanje mape "edited", če še ne obstaja
+    mapa_edited = os.path.join(trenutna_mapa, "edited")
+    if not os.path.exists(mapa_edited):
+        os.makedirs(mapa_edited)
+
+    # 3. Vnos besedila za dve vrstici
     print("Vnesi besedilo (če želiš samo eno vrstico, pusti drugo prazno):")
     vnos1 = input("1. vrstica (zgornja): ").strip()
     vnos2 = input("2. vrstica (spodnja): ").strip()
@@ -38,10 +83,11 @@ def main():
 
     if not vrstice:
         print("Nisi vnesel nobenega besedila. Prekinjam.")
+        input("\nPritisni ENTER za izhod...")
         return
 
     try:
-        # 3. Odpiranje slike
+        # 4. Odpiranje slike
         with Image.open(pot_do_slike) as img:
             img = img.convert("RGBA")
             sirina_slike, visina_slike = img.size
@@ -50,7 +96,7 @@ def main():
             overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
             draw_overlay = ImageDraw.Draw(overlay)
 
-            # 4. Nalaganje fontov
+            # 5. Nalaganje fontov
             try:
                 font_reg = ImageFont.truetype(FONT_PATH, FONT_SIZE)
             except IOError:
@@ -62,15 +108,12 @@ def main():
                 font_ital = font_reg
 
             def razčleni_tekst(tekst):
-                # Če je celoten tekst v oglatih oklepajih, vzamemo vsebino in uporabimo italic font
                 if tekst.startswith("[") and tekst.endswith("]"):
                     cisti_tekst = tekst[1:-1]
                     return f"[{cisti_tekst}]", font_ital
-                
-                # Za navaden tekst ohranimo nespremenjeno obliko
                 return tekst, font_reg
 
-            # 5. Izračun dimenzij za vsako vrstico
+            # 6. Izračun dimenzij za vsako vrstico
             podatki_vrstic = []
             for tekst in vrstice:
                 končni_tekst, uporabi_font = razčleni_tekst(tekst)
@@ -89,7 +132,7 @@ def main():
                     'h_box': h + (2 * PADDING_Y)
                 })
 
-            # 6. Izračun natančnih koordinat (vrstice se stikata)
+            # 7. Izračun natančnih koordinat (vrstice se stikata)
             trenutni_y_spodaj = visina_slike - Y_OFFSET
             
             for podatek in reversed(podatki_vrstic):
@@ -102,7 +145,7 @@ def main():
                 podatek['coords_box'] = [rect_x1, rect_y1, rect_x2, rect_y2]
                 trenutni_y_spodaj = rect_y1 
 
-            # 7. Triki z masko za doseganje enakomerno zaobljenih vogalov na stiku
+            # 8. Triki z masko za doseganje enakomerno zaobljenih vogalov na stiku
             scale = 4  
             maska = Image.new("L", (sirina_slike * scale, visina_slike * scale), 0)
             draw_mask = ImageDraw.Draw(maska)
@@ -118,27 +161,30 @@ def main():
 
             maska = maska.resize((sirina_slike, visina_slike), resample=Image.Resampling.LANCZOS)
 
-            # 8. Izrez okvirja z nastavljeno prosojnostjo
+            # 9. Izrez okvirja z nastavljeno prosojnostjo
             barva_okvirja = Image.new("RGBA", img.size, (0, 0, 0, BOX_OPACITY))
             overlay.paste(barva_okvirja, (0, 0), mask=maska)
 
-            # 9. Izris belega teksta čez pripravljen enoten okvir
+            # 10. Izris belega teksta čez pripravljen enoten okvir
             for podatek in podatki_vrstic:
                 x1, y1, _, _ = podatek['coords_box']
                 tx = x1 + PADDING_X
                 ty = y1 + PADDING_Y - podatek['offset_y']
                 draw_overlay.text((tx, ty), podatek['tekst'], fill="white", font=podatek['font'])
 
-            # 10. Združevanje in shranjevanje
+            # 11. Združevanje in shranjevanje z novim sistemom poimenovanja
             končna_slika = Image.alpha_composite(img, overlay).convert("RGB")
-            izhodno_ime = f"tole_edited{koncnica}"
-            izhodna_pot = os.path.join(os.path.dirname(__file__), izhodno_ime)
+            
+            izhodna_pot = dobi_naslednje_ime(mapa_edited, koncnica)
             končna_slika.save(izhodna_pot)
             
-            print(f"Uspešno shranjeno kot: {izhodno_ime}")
+            # Izpišemo samo ime datoteke (brez celotne dolge poti), da je pregledno
+            print(f"Uspešno shranjeno kot: edited/{os.path.basename(izhodna_pot)}")
+            input("\nPritisni ENTER za izhod...")
 
     except Exception as e:
         print(f"Prišlo je do napake pri obdelavi slike: {e}")
+        input("\nPritisni ENTER za izhod...")
 
 if __name__ == "__main__":
     main()
